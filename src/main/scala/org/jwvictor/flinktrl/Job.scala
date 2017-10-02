@@ -21,6 +21,7 @@ package org.jwvictor.flinktrl
 import org.apache.flink.streaming.api.scala._
 import org.jwvictor.flinktrl.operators.{BasicStringSplitter, TextInputOperators}
 import breeze.linalg._
+import org.apache.flink.streaming.api.functions.source.SourceFunction
 import org.jwvictor.flinktrl.math.FtrlParameters
 import org.jwvictor.flinktrl.math.MachineLearningUtilities.{ObservationWithOutcome, ObservedValues}
 
@@ -42,7 +43,25 @@ object Job {
     implicit val ftrlParameters = FtrlParameters(1, 1, 1, 1, nDimensions) // implicit input to `withFtrlLearning
     val res = SparseVector.zeros[Double](1)
     // Input stream
-    val txtStream = env.readTextFile("testdata.dat")
+    val fileStream = env.readTextFile("testdata.dat")
+    val txtStream = env.addSource[String](new SourceFunction[String] {
+
+      @volatile
+      private var isRunning = true
+
+      override def cancel(): Unit = {
+        isRunning = false
+      }
+
+      override def run(ctx: SourceFunction.SourceContext[String]): Unit = {
+        var ctr:Int = 0
+        while(isRunning && ctr < 1000){
+          ctx.collect(scala.util.Random.nextString(300))
+          Thread.sleep(300)
+          ctr += 1
+        }
+      }
+    })
 
     import org.jwvictor.flinktrl.operators.FtrlLearning._
 

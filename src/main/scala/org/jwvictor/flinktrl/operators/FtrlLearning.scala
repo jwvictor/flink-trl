@@ -24,6 +24,11 @@ import java.util.Collections
 import breeze.linalg.{DenseVector, SparseVector}
 import org.apache.flink.api.common.typeinfo.TypeInformation
 import org.apache.flink.streaming.api.scala._
+import org.apache.flink.streaming.api.windowing.assigners.{ProcessingTimeSessionWindows, TumblingProcessingTimeWindows}
+import org.apache.flink.streaming.api.windowing.time.Time
+import org.apache.flink.streaming.api.windowing.triggers.CountTrigger
+import org.apache.flink.streaming.api.windowing.windows.TimeWindow
+import org.apache.flink.util.Collector
 import org.jwvictor.flinktrl.math.FtrlParameters
 import org.jwvictor.flinktrl.math.MachineLearningUtilities.{LearnedWeights, MLBasicType, ObservationWithOutcome}
 
@@ -80,34 +85,42 @@ object FtrlLearning {
       */
     def withFtrlLearning: DataStream[LearnedWeights] = {
 
+      // Move this into function scope for closure cleaner
       val dimensions = ftrlParameters.numDimensions
+
+      // Main update stream, flat mapped over dimensions to produce an (i, obs) pair for each dimension i.
+      // Executes the math.
+      // Requires a stateful operation, hence the keying.
       val allUpdates = in.flatMap { updateInput =>
         0.until(dimensions).map(i => (i, updateInput))
-      }.keyBy(_._1).mapWithState((tup, state: Option[Double]) => {
+      }.keyBy(_._1).mapWithState((tup, state: Option[Tuple2[Int, Double]]) => {
+        val t_i = state.map(_._1).getOrElse(1)
         val idx = tup._1
         val observationWithOutcome = tup._2
         // Math goes here
         val newZ_i = scala.util.Random.nextDouble()
         // End math
-        val hashCode = observationWithOutcome.hashCode
-        ((hashCode, idx, newZ_i), Some(newZ_i))
+        ((t_i, idx, newZ_i), Some(t_i, newZ_i))
       })
-      /*val updatesByHashCode = allUpdates.keyBy(_._1).
-        window(ProcessingTimeSessionWindows.withGap(Time.seconds(5))).apply[List[Tuple2[Int,Double]]]((i:Int,tw:TimeWindow,sq:Iterable[(Int,Int,Double)],coll:Collector[List[Tuple2[Int,Double]]]) => {
-        //window(EventTimeSessionWindows.withGap(Time.seconds(5))).apply[List[Tuple2[Int,Double]]]((i:Int,tw:TimeWindow,sq:Iterable[(Int,Int,Double)],coll:Collector[List[Tuple2[Int,Double]]]) => {
+
+      // Groups updates by their generation.
+      val updatesByGeneration = allUpdates.
+        keyBy(_._1).
+        window(ProcessingTimeSessionWindows.withGap(Time.milliseconds(30))).
+        trigger(CountTrigger.of(dimensions)).
+        apply[List[Tuple2[Int, Double]]]((hashCode: Int, timeWindow: TimeWindow, sq: Iterable[(Int, Int, Double)], coll: Collector[List[Tuple2[Int, Double]]]) => {
         val data = sq.map(t => (t._2, t._3)).toList
         coll.collect(data)
       })
 
-            val weightVectorStream = updatesByHashCode.map(listIdxs => {
-              var vec = DenseVector.zeros[MLBasicType](ftrlParameters.numDimensions)
-              listIdxs.foreach(tup => vec(tup._1) = tup._2)
-              LearnedWeights(Right(vec))
-            })
+      // The final stream of dense weight vectors
+      val weightVectorStream = updatesByGeneration.map(listIdxs => {
+        var vec = DenseVector.zeros[MLBasicType](dimensions)
+        listIdxs.foreach(tup => vec(tup._1) = tup._2)
+        LearnedWeights(Right(vec))
+      })
 
-            weightVectorStream
-            */
-      allUpdates.map(lst => LearnedWeights(Left(SparseVector.zeros[Double](lst._2))))
+      weightVectorStream
     }
   }
 
