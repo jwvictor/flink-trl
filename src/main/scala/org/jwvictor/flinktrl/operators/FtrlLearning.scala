@@ -22,29 +22,57 @@ import java.util
 import java.util.Collections
 
 import breeze.linalg.{DenseVector, SparseVector}
-import org.apache.flink.api.common.functions.RichMapFunction
 import org.apache.flink.api.common.typeinfo.TypeInformation
-import org.apache.flink.streaming.api.checkpoint.ListCheckpointed
 import org.apache.flink.streaming.api.scala._
-import org.apache.flink.streaming.api.windowing.assigners.{EventTimeSessionWindows, ProcessingTimeSessionWindows, TumblingEventTimeWindows}
-import org.apache.flink.streaming.api.windowing.time.Time
-import org.apache.flink.streaming.api.windowing.windows.TimeWindow
-import org.apache.flink.util.Collector
 import org.jwvictor.flinktrl.math.FtrlParameters
 import org.jwvictor.flinktrl.math.MachineLearningUtilities.{LearnedWeights, MLBasicType, ObservationWithOutcome}
 
+/**
+  * Helper types to make `Long` values implement `java.io.Serializable`
+  */
 object FtrlLearningTypeHelpers {
+
+  /**
+    * Wrapper type
+    * @param x value
+    */
   case class SerializableLong(x:Long) extends Serializable
+
+  /**
+    * Implicit conversion to
+    * @param x
+    * @return
+    */
   implicit def longToSerializable(x:Long):SerializableLong = SerializableLong(x)
+
+  /**
+    * Implicit conversion from
+    * @param s
+    * @return
+    */
   implicit def serializableToLong(s:SerializableLong):Long = s.x
 }
 
 import FtrlLearningTypeHelpers._
 
+/**
+  * Main `Learning stream` implicit clas container
+  */
 object FtrlLearning {
+
+  // Declare type information to Flink type system
   implicit val typeInfo = TypeInformation.of(classOf[LearnedWeights])
 
+  /**
+    * Implicit class that adds a `withFtrlLearning` method to a `DataStream`
+    * @param in
+    * @param ftrlParameters
+    */
   implicit class FtrlLearningStream(in: DataStream[ObservationWithOutcome])(implicit ftrlParameters: FtrlParameters) {
+    /**
+      * Takes a set of observed outcomes and trains a model
+      * @return data stream of learned weights
+      */
     def withFtrlLearning: DataStream[LearnedWeights] = {
 
       val dimensions = ftrlParameters.numDimensions

@@ -18,16 +18,16 @@ package org.jwvictor.flinktrl
  * limitations under the License.
  */
 
-import org.apache.flink.api.common.typeinfo.TypeInformation
 import org.apache.flink.streaming.api.scala._
-import org.apache.flink.api.scala._
-import org.apache.flink.streaming.api.windowing.time.Time
 import org.jwvictor.flinktrl.operators.{BasicStringSplitter, TextInputOperators}
 import breeze.linalg._
 import org.jwvictor.flinktrl.math.FtrlParameters
 import org.jwvictor.flinktrl.math.MachineLearningUtilities.{ObservationWithOutcome, ObservedValues}
 
 
+/**
+  * Entry point for test driver.
+  */
 object Job {
   def main(args: Array[String]) {
     // Set up the execution environment
@@ -37,11 +37,16 @@ object Job {
     import org.apache.flink.streaming.api.scala._
 
 
+    // Basic model parameters
     val nDimensions = 100
-    implicit val ftrlParameters = FtrlParameters(1, 1, 1, 1, nDimensions)
-    val txtStream = env.readTextFile("testdata.dat")
+    implicit val ftrlParameters = FtrlParameters(1, 1, 1, 1, nDimensions) // implicit input to `withFtrlLearning
     val res = SparseVector.zeros[Double](1)
+    // Input stream
+    val txtStream = env.readTextFile("testdata.dat")
+
     import org.jwvictor.flinktrl.operators.FtrlLearning._
+
+    // Test `withFtrlLearning` operator
     val outStream = txtStream.
       map(TextInputOperators.textToHashVector(_, nDimensions, BasicStringSplitter)).
       map(x => ObservationWithOutcome(ObservedValues(x), ObservedValues(Left(res)))).
