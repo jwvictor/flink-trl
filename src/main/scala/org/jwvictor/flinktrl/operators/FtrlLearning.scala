@@ -9,7 +9,7 @@ package org.jwvictor.flinktrl.operators
   * "License"); you may not use this file except in compliance
   * with the License.  You may obtain a copy of the License at
   *
-  *     http://www.apache.org/licenses/LICENSE-2.0
+  * http://www.apache.org/licenses/LICENSE-2.0
   *
   * Unless required by applicable law or agreed to in writing, software
   * distributed under the License is distributed on an "AS IS" BASIS,
@@ -34,23 +34,26 @@ object FtrlLearningTypeHelpers {
 
   /**
     * Wrapper type
+    *
     * @param x value
     */
-  case class SerializableLong(x:Long) extends Serializable
+  case class SerializableLong(x: Long) extends Serializable
 
   /**
     * Implicit conversion to
+    *
     * @param x
     * @return
     */
-  implicit def longToSerializable(x:Long):SerializableLong = SerializableLong(x)
+  implicit def longToSerializable(x: Long): SerializableLong = SerializableLong(x)
 
   /**
     * Implicit conversion from
+    *
     * @param s
     * @return
     */
-  implicit def serializableToLong(s:SerializableLong):Long = s.x
+  implicit def serializableToLong(s: SerializableLong): Long = s.x
 }
 
 import FtrlLearningTypeHelpers._
@@ -65,12 +68,14 @@ object FtrlLearning {
 
   /**
     * Implicit class that adds a `withFtrlLearning` method to a `DataStream`
+    *
     * @param in
     * @param ftrlParameters
     */
   implicit class FtrlLearningStream(in: DataStream[ObservationWithOutcome])(implicit ftrlParameters: FtrlParameters) {
     /**
       * Takes a set of observed outcomes and trains a model
+      *
       * @return data stream of learned weights
       */
     def withFtrlLearning: DataStream[LearnedWeights] = {
@@ -78,7 +83,7 @@ object FtrlLearning {
       val dimensions = ftrlParameters.numDimensions
       val allUpdates = in.flatMap { updateInput =>
         0.until(dimensions).map(i => (i, updateInput))
-      }.keyBy(_._1).mapWithState((tup, state:Option[Double]) => {
+      }.keyBy(_._1).mapWithState((tup, state: Option[Double]) => {
         val idx = tup._1
         val observationWithOutcome = tup._2
         // Math goes here

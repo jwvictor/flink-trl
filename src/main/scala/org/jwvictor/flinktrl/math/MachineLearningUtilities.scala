@@ -5,7 +5,7 @@ import breeze.linalg.{DenseVector, SparseVector, VectorLike}
 object MachineLearningUtilities {
 
   type MLBasicType = Double
-  type SomeVector = Either[SparseVector[MLBasicType],DenseVector[MLBasicType]]
+  type SomeVector = Either[SparseVector[MLBasicType], DenseVector[MLBasicType]]
 
   /**
     * A sequence of observed values
