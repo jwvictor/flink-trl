@@ -56,7 +56,7 @@ object FtrlLearningTypeHelpers {
 import FtrlLearningTypeHelpers._
 
 /**
-  * Main `Learning stream` implicit clas container
+  * `FtrlLearningStream` implicit class container
   */
 object FtrlLearning {
 
