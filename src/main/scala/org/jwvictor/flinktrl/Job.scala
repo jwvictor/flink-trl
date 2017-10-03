@@ -23,7 +23,7 @@ import org.jwvictor.flinktrl.operators.{BasicStringSplitter, TextInputOperators}
 import breeze.linalg._
 import org.apache.flink.streaming.api.functions.source.SourceFunction
 import org.jwvictor.flinktrl.math.FtrlParameters
-import org.jwvictor.flinktrl.math.MachineLearningUtilities.{ObservationWithOutcome, ObservedValues}
+import org.jwvictor.flinktrl.math.MachineLearningUtilities.{FtrlObservation, LearnedWeights, ObservationWithOutcome, ObservedValues}
 
 
 /**
@@ -69,10 +69,14 @@ object Job {
     val outStream = txtStream.
       map(TextInputOperators.textToHashVector(_, nDimensions, BasicStringSplitter)).
       map(x => ObservationWithOutcome(ObservedValues(x), ObservedValues(Left(res)))).
+      map(x => FtrlObservation(x, LearnedWeights(Right(DenseVector.zeros[Double](nDimensions))))).
       withFtrlLearning.
       map(_.toString)
     outStream.writeAsText("./out-ftrl-test.dat")
 
+    def rig(s1:DataStream[ObservationWithOutcome], s2:LearnedWeights):DataStream[FtrlObservation] = {
+      //s1.union(s2)
+    }
     env.execute("FlinkTRL test driver")
   }
 }

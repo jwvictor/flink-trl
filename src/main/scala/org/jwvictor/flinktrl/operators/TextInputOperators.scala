@@ -22,7 +22,7 @@ case object BasicStringSplitter extends FtrlStringTokenizer {
   override def split(input: String): Seq[String] = {
     val toRemove = PUNCTUATION + NUMBERS + WHITESPACE
     val sanitized = input.filter(!toRemove.contains(_))
-    val tokens = input.split(" ")
+    val tokens = sanitized.split(" ")
     tokens
   }
 }

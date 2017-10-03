@@ -39,6 +39,16 @@ object MachineLearningUtilities {
 
   case class ObservationWithOutcome(inputValues: ObservedValues, outcome: ObservedValues) extends FtrlSample
 
+  /**
+    * An observation plus the current weights: all that is needed as input to FTRL.
+    *
+    * @param observation
+    * @param currentWeights
+    */
+  case class FtrlObservation(observation: ObservationWithOutcome, currentWeights: LearnedWeights) extends FtrlSample
+
+  type ObservationOrWeights = Either[ObservationWithOutcome, LearnedWeights]
+
 }
 
 /**
