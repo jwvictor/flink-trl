@@ -21,27 +21,31 @@ package org.jwvictor.flinktrl
 import org.apache.flink.streaming.api.scala._
 import org.jwvictor.flinktrl.operators.{BasicStringSplitter, TextInputOperators}
 import breeze.linalg._
+import breeze.numerics._
+import breeze.util._
 import org.apache.flink.streaming.api.functions.source.SourceFunction
 import org.jwvictor.flinktrl.math.FtrlParameters
 import org.jwvictor.flinktrl.math.MachineLearningUtilities.{FtrlObservation, LearnedWeights, ObservationWithOutcome, ObservedValues}
 
 
 /**
-  * Entry point for test driver.
+  * Entry point for example driver.
   */
 object Job {
   def main(args: Array[String]) {
     // Set up the execution environment
     val env = StreamExecutionEnvironment.getExecutionEnvironment
-    env.setMaxParallelism(1)
+    env.setMaxParallelism(1) // TODO: get more parallelism
 
     import org.apache.flink.streaming.api.scala._
 
 
     // Basic model parameters
     val nDimensions = 100
-    implicit val ftrlParameters = FtrlParameters(1, 1, 1, 1, nDimensions) // implicit input to `withFtrlLearning
+    implicit val ftrlParameters = FtrlParameters(1, 1, 1, 1, nDimensions) // implicit input to `withFtrlLearning`
     val res = SparseVector.zeros[Double](1)
+    // Example serialization to file
+    breeze.linalg.mmwrite(new java.io.File("resoutfile.dat"), new DenseMatrix[Double](res.length, 1, res.toArray))
     // Input stream
     val fileStream = env.readTextFile("testdata.dat")
     val txtStream = env.addSource[String](new SourceFunction[String] {
@@ -74,9 +78,6 @@ object Job {
       map(_.toString)
     outStream.writeAsText("./out-ftrl-test.dat")
 
-    def rig(s1:DataStream[ObservationWithOutcome], s2:LearnedWeights):DataStream[FtrlObservation] = {
-      //s1.union(s2)
-    }
     env.execute("FlinkTRL test driver")
   }
 }

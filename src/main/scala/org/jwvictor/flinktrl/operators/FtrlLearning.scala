@@ -18,9 +18,6 @@ package org.jwvictor.flinktrl.operators
   * limitations under the License.
   */
 
-import java.util
-import java.util.Collections
-
 import breeze.linalg.{DenseVector, SparseVector}
 import org.apache.flink.api.common.typeinfo.TypeInformation
 import org.apache.flink.streaming.api.functions.co.CoProcessFunction
@@ -133,7 +130,7 @@ object FtrlLearning {
     * @param ftrlParameters parameters to the FTRL model
     */
   class FtrlInputJoinStream(ftrlParameters: FtrlParameters)
-    extends CoProcessFunction[ObservationWithOutcome, LearnedWeights, ObservationOrWeights]
+    extends CoProcessFunction[ObservationWithOutcome, LearnedWeights, FtrlObservation]
       with NaiveFtrlHeuristics {
 
     private var lastsRecordedWeights: Option[LearnedWeights] = None
@@ -143,7 +140,7 @@ object FtrlLearning {
       *
       * @return dense vector
       */
-    private def generateInitWeights: DenseVector[Double] = generateWeights(ftrlParameters.numDimensions)
+    private def generateInitWeights: DenseVector[Double] = generateInitialWeights(ftrlParameters.numDimensions)
 
     /**
       * On any arrival of an observation, emit the observation, using generated weights if necessary.
@@ -152,27 +149,38 @@ object FtrlLearning {
       * @param ctx   context
       * @param out   collector
       */
-    override def processElement1(value: _root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.ObservationWithOutcome, ctx: _root_.org.apache.flink.streaming.api.functions.co.CoProcessFunction[_root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.ObservationWithOutcome, _root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.LearnedWeights, _root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.ObservationOrWeights]#Context, out: _root_.org.apache.flink.util.Collector[_root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.ObservationOrWeights]): Unit = {
-      val weights = lastsRecordedWeights.getOrElse(LearnedWeights(Right(generateInitWeights)))
+    override def processElement1(value: _root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.ObservationWithOutcome, ctx: _root_.org.apache.flink.streaming.api.functions.co.CoProcessFunction[_root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.ObservationWithOutcome, _root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.LearnedWeights, _root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.FtrlObservation]#Context, out: _root_.org.apache.flink.util.Collector[_root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.FtrlObservation]): Unit = {
+      // Until the first set of weights arrives, we will use a vector generated using the mixed-in `FtrlHeuristics` trait.
+      val weights = synchronized {
+        lastsRecordedWeights match {
+          case Some(w: LearnedWeights) => w
+          case _ =>
+            val gw = LearnedWeights(Right(generateInitialWeights(ftrlParameters.numDimensions)))
+            lastsRecordedWeights = Some(gw)
+            gw
+        }
+      }
+
+      // Output a pair in every case
       val input = FtrlObservation(value, weights)
-      out.collect(Left(input.observation))
+      out.collect(input)
     }
 
     /**
-      * On arrival of new weights, update the state and emit the learned weights
+      * On arrival of new weights, update the state
+      *
       * @param value
       * @param ctx
       * @param out
       */
-    override def processElement2(value: _root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.LearnedWeights, ctx: _root_.org.apache.flink.streaming.api.functions.co.CoProcessFunction[_root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.ObservationWithOutcome, _root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.LearnedWeights, _root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.ObservationOrWeights]#Context, out: _root_.org.apache.flink.util.Collector[_root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.ObservationOrWeights]): Unit = {
+    override def processElement2(value: _root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.LearnedWeights, ctx: _root_.org.apache.flink.streaming.api.functions.co.CoProcessFunction[_root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.ObservationWithOutcome, _root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.LearnedWeights, _root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.FtrlObservation]#Context, out: _root_.org.apache.flink.util.Collector[_root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.FtrlObservation]): Unit = {
       lastsRecordedWeights = Some(value)
-      out.collect(Right(value))
     }
 
   }
 
   /**
-    * Uses the custom operator to create a stream of `ObservationOrWeights` from streams of observations and weights.
+    * Uses the custom operator to create a stream of `FtrlLearning` from streams of observations and weights.
     *
     * @param in
     * @param learnedWeights
@@ -181,13 +189,17 @@ object FtrlLearning {
   class FtrlFeedbackOperator(in: DataStream[ObservationWithOutcome], learnedWeights: DataStream[LearnedWeights], rig: FtrlParameters) {
 
     /**
-      * Create feedback stream
+      * Create feedback stream ready for ingestion by FTRL. Takes in observation and latest weight streams, and produces
+      * a stream of new weights.
+      *
+      * Implementation recommendation: use a mechanism like Kafka to stream weights to and from and create this feedback
+      * loop, as in the example program.
       *
       * @param s1
       * @param s2
       * @return joined stream
       */
-    def createFeedbackLoop(s1: DataStream[ObservationWithOutcome], s2: DataStream[LearnedWeights]): DataStream[ObservationOrWeights] = {
+    def createFeedbackLoop(s1: DataStream[ObservationWithOutcome], s2: DataStream[LearnedWeights]): DataStream[FtrlObservation] = {
       val connected: ConnectedStreams[ObservationWithOutcome, LearnedWeights] = s1.connect[LearnedWeights](s2)
       val outStream = connected.process(new FtrlInputJoinStream(null))
       outStream
