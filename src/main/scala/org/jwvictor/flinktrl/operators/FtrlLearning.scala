@@ -1,19 +1,19 @@
 package org.jwvictor.flinktrl.operators
 
 /**
-  *      Copyright 2017 Jason Victor
+  * Copyright 2017 Jason Victor
   *
-  *  Licensed under the Apache License, Version 2.0 (the "License");
-  *  you may not use this file except in compliance with the License.
-  *  You may obtain a copy of the License at
+  * Licensed under the Apache License, Version 2.0 (the "License");
+  * you may not use this file except in compliance with the License.
+  * You may obtain a copy of the License at
   *
-  *      http://www.apache.org/licenses/LICENSE-2.0
+  * http://www.apache.org/licenses/LICENSE-2.0
   *
-  *  Unless required by applicable law or agreed to in writing, software
-  *  distributed under the License is distributed on an "AS IS" BASIS,
-  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  *  See the License for the specific language governing permissions and
-  *  limitations under the License.
+  * Unless required by applicable law or agreed to in writing, software
+  * distributed under the License is distributed on an "AS IS" BASIS,
+  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  * See the License for the specific language governing permissions and
+  * limitations under the License.
   */
 
 import breeze.linalg.{DenseVector, SparseVector}
@@ -96,28 +96,34 @@ object FtrlLearning {
         0.until(dimensions).map(i => (i, updateInput))
       }.keyBy(_._1).
         mapWithState((tup, state: Option[Tuple3[Int, Double, Double]]) => {
-        val t_i = state.map(_._1).getOrElse(1)
-        val idx = tup._1
-        val observationWithOutcome = tup._2
-        val pFtrlOutput = computeNextGeneration(
-          tup._1,
-          params,
-          observationWithOutcome.observation.inputValues,
-          observationWithOutcome.observation.outcome.asArray(0),
-          observationWithOutcome.currentWeights)
-        val newZ_i = pFtrlOutput.newZ
-        val newN_i = pFtrlOutput.newN
-        val newW_i = pFtrlOutput.newW
-        // End math
-        ((t_i, idx, newZ_i, newN_i, newW_i), Some((t_i + 1) % Int.MaxValue, newZ_i, newN_i))
-      })
+          // The state tuple is the generation t_i, and the state variables z_i and n_i
+          val t_i = state.map(_._1).getOrElse(1)
+          val idx = tup._1
+          val observationWithOutcome = tup._2
+
+          // Run FTRL update computation
+          val pFtrlOutput = computeNextGeneration(
+            tup._1,
+            params,
+            observationWithOutcome.observation.inputValues,
+            observationWithOutcome.observation.outcome.asArray(0),
+            observationWithOutcome.currentWeights)
+
+          // Extract relevant values
+          val newZ_i = pFtrlOutput.newZ
+          val newN_i = pFtrlOutput.newN
+          val newW_i = pFtrlOutput.newW
+
+          // Forward new value along and update state
+          ((t_i, idx, newZ_i, newN_i, newW_i), Some((t_i + 1) % Int.MaxValue, newZ_i, newN_i))
+        })
 
       // Groups updates by their generation.
       val updatesByGeneration = allUpdates.
         keyBy(_._1).
         window(ProcessingTimeSessionWindows.withGap(Time.minutes(3))). // Reaching the gap is a fail case...
         trigger(CountTrigger.of(dimensions)). // ... the trigger should always close the window before then.
-        apply((_: Int, _: TimeWindow, sq: Iterable[(Int, Int, Double, Double, Double)], coll: Collector[(List[(Int, Double)],List[(Int, Double)],List[(Int, Double)])]) => {
+        apply((_: Int, _: TimeWindow, sq: Iterable[(Int, Int, Double, Double, Double)], coll: Collector[(List[(Int, Double)], List[(Int, Double)], List[(Int, Double)])]) => {
         val zData = sq.map(t => (t._2, t._3)).toList
         val nData = sq.map(t => (t._2, t._4)).toList
         val wData = sq.map(t => (t._2, t._5)).toList
@@ -134,12 +140,10 @@ object FtrlLearning {
         var nVec = DenseVector.zeros[MLBasicType](dimensions)
         listIdxsTup._2.foreach(tup => nVec(tup._1) = tup._2)
         val weights = LearnedWeights(Dense(wVec), Dense(zVec), Dense(nVec))
-
-        println(s"\n\nWEIGHTS:  $weights\n\nlistIdxsTups:  $listIdxsTup\n\n")
         weights
       })
 
-      // `weightVectorStream` is a `DataStream[LearnedWeightings]`
+      // Return `weightVectorStream` - a `DataStream[LearnedWeights]` with updated parameters
       weightVectorStream
     }
   }
@@ -169,7 +173,7 @@ object FtrlLearning {
         lastsRecordedWeights match {
           case Some(w: LearnedWeights) => w
           case _ =>
-            // This changed from: LearnedWeights(Dense(generateInitialWeights(ftrlParameters.numDimensions)))
+            // Pass the initialization vector if none exists yet
             val gw = LearnedWeights(Initialization, Initialization, Initialization)
             lastsRecordedWeights = Some(gw)
             gw

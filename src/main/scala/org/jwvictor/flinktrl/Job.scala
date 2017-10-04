@@ -95,17 +95,6 @@ object Job {
       withFtrlLearning.
       map(_.serialize.array().map(_.toString).toList.toString)
 
-    /*val x = Dense(DenseVector.zeros[Double](nDimensions))
-    val fakeWeightValues = LearnedWeights(x, x, x)
-
-    // Test `withFtrlLearning` operator
-    val outStream = txtStream.
-      map(TextInputOperators.textToHashVector(_, nDimensions, BasicStringSplitter)).
-      map(x => ObservationWithOutcome(ObservedValues(x), ObservedValues(Sparse(res)))).
-      map(x => FtrlObservation(x, fakeWeightValues)).
-      withFtrlLearning.
-      map(_.toString)*/
-    //outStream.writeAsText("./out-ftrl-test.dat")
     learnedWeightsAndStateStream.writeAsText("./state-out-ftrl-test.dat")
     env.execute("FlinkTRL test driver")
   }

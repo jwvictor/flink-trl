@@ -1,19 +1,19 @@
 package org.jwvictor.flinktrl.math
 
 /**
-  *      Copyright 2017 Jason Victor
+  * Copyright 2017 Jason Victor
   *
-  *  Licensed under the Apache License, Version 2.0 (the "License");
-  *  you may not use this file except in compliance with the License.
-  *  You may obtain a copy of the License at
+  * Licensed under the Apache License, Version 2.0 (the "License");
+  * you may not use this file except in compliance with the License.
+  * You may obtain a copy of the License at
   *
-  *      http://www.apache.org/licenses/LICENSE-2.0
+  * http://www.apache.org/licenses/LICENSE-2.0
   *
-  *  Unless required by applicable law or agreed to in writing, software
-  *  distributed under the License is distributed on an "AS IS" BASIS,
-  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  *  See the License for the specific language governing permissions and
-  *  limitations under the License.
+  * Unless required by applicable law or agreed to in writing, software
+  * distributed under the License is distributed on an "AS IS" BASIS,
+  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  * See the License for the specific language governing permissions and
+  * limitations under the License.
   */
 
 import java.nio.ByteBuffer
@@ -25,32 +25,80 @@ import scala.util.Try
 object MachineLearningUtilities {
 
   type MLBasicType = Double
-  //type SomeVector = Either[SparseVector[MLBasicType], DenseVector[MLBasicType]]
 
+  /**
+    * The `SomeVector` type allows dense, sparse, and initialization vectors to be used interchangeably.
+    */
   trait SomeVector {
-    def asArray:Array[MLBasicType]
-    def asSparse:SparseVector[MLBasicType]
-    def asDense:DenseVector[MLBasicType]
-    def apply(index: Int):MLBasicType
+    /**
+      * Cast to simple array
+      *
+      * @return
+      */
+    def asArray: Array[MLBasicType]
+
+    /**
+      * Coerce to sparse vector
+      *
+      * @return
+      */
+    def asSparse: SparseVector[MLBasicType]
+
+    /**
+      * Coerce to dense vector
+      *
+      * @return
+      */
+    def asDense: DenseVector[MLBasicType]
+
+    /**
+      * Indexing function
+      *
+      * @param index
+      * @return
+      */
+    def apply(index: Int): MLBasicType
   }
+
+  /**
+    * Implementation for a sparse vector
+    *
+    * @param sparseVector
+    */
   case class Sparse(sparseVector: SparseVector[Double]) extends SomeVector {
     override def asArray: Array[MLBasicType] = sparseVector.toArray
+
     override def asSparse: SparseVector[MLBasicType] = sparseVector
+
     override def asDense: DenseVector[MLBasicType] = DenseVector(sparseVector.toArray)
 
     override def apply(index: Int): MLBasicType = sparseVector(index)
 
   }
+
+  /**
+    * Implementation for a dense vector
+    *
+    * @param denseVector
+    */
   case class Dense(denseVector: DenseVector[Double]) extends SomeVector {
     override def asArray: Array[MLBasicType] = denseVector.toArray
+
     override def asSparse: SparseVector[MLBasicType] = SparseVector(denseVector.toArray)
+
     override def asDense: DenseVector[MLBasicType] = denseVector
 
     override def apply(index: Int): MLBasicType = denseVector(index)
   }
+
+  /**
+    * Implementation for an initialization (zero) vector
+    */
   case object Initialization extends SomeVector {
     override def asArray: Array[MLBasicType] = Array()
+
     override def asSparse: SparseVector[MLBasicType] = SparseVector.zeros[Double](0)
+
     override def asDense: DenseVector[MLBasicType] = DenseVector.zeros[Double](0)
 
     override def apply(index: Int): MLBasicType = 0
@@ -65,7 +113,7 @@ object MachineLearningUtilities {
     */
   case class ObservedValues(values: SomeVector)
 
-  implicit def observedValuesToVector(o:ObservedValues):SomeVector = o.values
+  implicit def observedValuesToVector(o: ObservedValues): SomeVector = o.values
 
   /**
     * Learned weights
