@@ -96,18 +96,20 @@ object FtrlLearning {
         0.until(dimensions).map(i => (i, updateInput))
       }.keyBy(_._1).
         mapWithState((tup, state: Option[Tuple3[Int, Double, Double]]) => {
-          // The state tuple is the generation t_i, and the state variables z_i and n_i
+          // The state tuple is the generation `t_i`, and the state variables `z_i` and `n_i`
           val t_i = state.map(_._1).getOrElse(1)
           val idx = tup._1
           val observationWithOutcome = tup._2
 
-          // Run FTRL update computation
+          // Run FTRL update computation, providing most up-to-date `z_i` and `n_i` available
           val pFtrlOutput = computeNextGeneration(
             tup._1,
             params,
             observationWithOutcome.observation.inputValues,
             observationWithOutcome.observation.outcome.asArray(0),
-            observationWithOutcome.currentWeights)
+            observationWithOutcome.currentWeights,
+            state.map(_._2),
+            state.map(_._3))
 
           // Extract relevant values
           val newZ_i = pFtrlOutput.newZ

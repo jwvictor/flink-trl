@@ -65,6 +65,8 @@ object ProximalFTRL {
     * @param label          observed outcome
     * @param learnedWeights current weights
     * @param precomputedPt  pre-computed `p_t` (for future optimizations)
+    * @param mostCurrentZi  the most up-to-date value
+    * @param mostCurrentNi  the most up-to-date value
     * @return
     */
   def computeNextGeneration(index: Int,
@@ -72,15 +74,18 @@ object ProximalFTRL {
                             inputVector: SomeVector,
                             label: Double,
                             learnedWeights: LearnedWeights,
+                            mostCurrentZi: Option[Double] = None,
+                            mostCurrentNi: Option[Double] = None,
                             precomputedPt: Option[Double] = None): FtrlGenerationStepOutput = {
 
     // Current values
-    val wi = learnedWeights.values(index)
-    val ni = learnedWeights.nVector(index)
-    val zi = learnedWeights.zVector(index)
+    val ni = mostCurrentNi.getOrElse(learnedWeights.nVector(index))
+    val zi = mostCurrentZi.getOrElse(learnedWeights.zVector(index))
 
     // Get updated weights based on new `z_i` and `n_i` values
     val newWeights = 0.until(learnedWeights.length).map { i =>
+      val ni = if(i == index) ni else learnedWeights.nVector(i)
+      val zi = if(i == index) zi else learnedWeights.zVector(i)
       if (math.abs(learnedWeights.values(i)) <= ftrlParameters.lambda1) 0.0 else {
         -1.0 * math.sqrt(((ftrlParameters.beta + math.sqrt(ni)) / ftrlParameters.alpha) + ftrlParameters.lambda2) * (zi - (sgn(zi) * ftrlParameters.lambda1))
       }

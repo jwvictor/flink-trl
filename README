@@ -1,0 +1,8 @@
+Flink the Regularized Leader
+============================
+
+Flink the Regularized Leader is an implementation of the modified Follow the (Proximally) Regularized Leader algorithm in this paper: http://www.eecs.tufts.edu/~dsculley/papers/ad-click-prediction.pdf
+
+### Implementation details
+
+This implementation uses best-effort consistency to synchronize parameter values between indices. An upcoming enhancement is to synchronize the ingestion of new observations and weights from the feedback loop so as to match the paper exactly at the price of throughput. That said, it seems best to leave this decision to the decision to the user as to whether they want to ensure full consistency between parameter values when updating estimates for an individual index. 
