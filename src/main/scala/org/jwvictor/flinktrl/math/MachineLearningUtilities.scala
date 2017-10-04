@@ -25,7 +25,37 @@ import scala.util.Try
 object MachineLearningUtilities {
 
   type MLBasicType = Double
-  type SomeVector = Either[SparseVector[MLBasicType], DenseVector[MLBasicType]]
+  //type SomeVector = Either[SparseVector[MLBasicType], DenseVector[MLBasicType]]
+
+  trait SomeVector {
+    def asArray:Array[MLBasicType]
+    def asSparse:SparseVector[MLBasicType]
+    def asDense:DenseVector[MLBasicType]
+    def apply(index: Int):MLBasicType
+  }
+  case class Sparse(sparseVector: SparseVector[Double]) extends SomeVector {
+    override def asArray: Array[MLBasicType] = sparseVector.toArray
+    override def asSparse: SparseVector[MLBasicType] = sparseVector
+    override def asDense: DenseVector[MLBasicType] = DenseVector(sparseVector.toArray)
+
+    override def apply(index: Int): MLBasicType = sparseVector(index)
+
+  }
+  case class Dense(denseVector: DenseVector[Double]) extends SomeVector {
+    override def asArray: Array[MLBasicType] = denseVector.toArray
+    override def asSparse: SparseVector[MLBasicType] = SparseVector(denseVector.toArray)
+    override def asDense: DenseVector[MLBasicType] = denseVector
+
+    override def apply(index: Int): MLBasicType = denseVector(index)
+  }
+  case object Initialization extends SomeVector {
+    override def asArray: Array[MLBasicType] = Array()
+    override def asSparse: SparseVector[MLBasicType] = SparseVector.zeros[Double](0)
+    override def asDense: DenseVector[MLBasicType] = DenseVector.zeros[Double](0)
+
+    override def apply(index: Int): MLBasicType = 0
+  }
+
   val BYTES_IN_DOUBLE = 8
 
   /**
@@ -35,12 +65,14 @@ object MachineLearningUtilities {
     */
   case class ObservedValues(values: SomeVector)
 
+  implicit def observedValuesToVector(o:ObservedValues):SomeVector = o.values
+
   /**
     * Learned weights
     *
     * @param values a sparse or dense vector
     */
-  case class LearnedWeights(values: SomeVector) {
+  case class LearnedWeights(values: SomeVector, zVector: SomeVector, nVector: SomeVector) {
     /**
       * Dimension
       *
@@ -48,8 +80,9 @@ object MachineLearningUtilities {
       */
     def length: Int = {
       values match {
-        case Left(sv) => sv.length
-        case Right(dv) => dv.length
+        case Sparse(sv) => sv.length
+        case Dense(dv) => dv.length
+        case _ => 0
       }
     }
 
@@ -59,10 +92,7 @@ object MachineLearningUtilities {
       * @return array of values
       */
     def asArray: Array[Double] = {
-      values match {
-        case Left(sv) => sv.toArray
-        case Right(dv) => dv.toArray
-      }
+      values.asArray
     }
 
     /**
@@ -72,10 +102,18 @@ object MachineLearningUtilities {
       */
     def serialize: ByteBuffer = {
       val x = 1.0
-      val buf = ByteBuffer.allocate(BYTES_IN_DOUBLE * length)
-      val get = asArray
+      val buf = ByteBuffer.allocate(BYTES_IN_DOUBLE * length * 3)
+      val data = asArray
       for (i <- 0.until(length)) {
-        buf.putDouble(get(i))
+        buf.putDouble(data(i))
+      }
+      val zv = zVector.asArray
+      for (i <- 0.until(length)) {
+        buf.putDouble(zv(i))
+      }
+      val nv = nVector.asArray
+      for (i <- 0.until(length)) {
+        buf.putDouble(nv(i))
       }
       buf
     }
@@ -101,7 +139,13 @@ object MachineLearningUtilities {
         }
       }
       val data = lst.reverse.toArray
-      LearnedWeights(Right(DenseVector[Double](data)))
+      val len = data.length / 3
+      assert((len % 3) == 0)
+
+      val ws = data.slice(0, len)
+      val zs = data.slice(len, 2 * len)
+      val ns = data.slice(2 * len, 3 * len)
+      LearnedWeights(Dense(DenseVector[Double](ws)), Dense(DenseVector[Double](zs)), Dense(DenseVector[Double](ns)))
     }
   }
 

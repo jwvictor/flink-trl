@@ -25,9 +25,10 @@ import org.apache.flink.streaming.api.windowing.time.Time
 import org.apache.flink.streaming.api.windowing.triggers.CountTrigger
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow
 import org.apache.flink.util.Collector
-import org.jwvictor.flinktrl.math.FtrlParameters
+import org.jwvictor.flinktrl.math.{FtrlParameters, ProximalFTRL}
 import org.jwvictor.flinktrl.math.FtrlUtilities.NaiveFtrlHeuristics
 import org.jwvictor.flinktrl.math.MachineLearningUtilities._
+import org.jwvictor.flinktrl.math.ProximalFTRL.FtrlGenerationStepOutput
 
 /**
   * Helper types to make `Long` values implement `java.io.Serializable`
@@ -75,6 +76,7 @@ object FtrlLearning {
     * @param ftrlParameters
     */
   implicit class FtrlLearningStream(in: DataStream[FtrlObservation])(implicit ftrlParameters: FtrlParameters) {
+
     /**
       * Takes a set of observed outcomes and trains a model
       *
@@ -83,21 +85,31 @@ object FtrlLearning {
     def withFtrlLearning: DataStream[LearnedWeights] = {
 
       // Move this into function scope for closure cleaner
-      val dimensions = ftrlParameters.numDimensions
+      val params = ftrlParameters
+      val dimensions = params.numDimensions
+      import ProximalFTRL._
 
       // Main update stream, flat mapped over dimensions to produce an (i, obs) pair for each dimension i.
       // Executes the math.
       // Requires a stateful operation, hence the keying.
       val allUpdates = in.flatMap { updateInput =>
         0.until(dimensions).map(i => (i, updateInput))
-      }.keyBy(_._1).mapWithState((tup, state: Option[Tuple2[Int, Double]]) => {
+      }.keyBy(_._1).
+        mapWithState((tup, state: Option[Tuple3[Int, Double, Double]]) => {
         val t_i = state.map(_._1).getOrElse(1)
         val idx = tup._1
         val observationWithOutcome = tup._2
-        // Math goes here
-        val newZ_i = scala.util.Random.nextDouble()
+        val pFtrlOutput = computeNextGeneration(
+          tup._1,
+          params,
+          observationWithOutcome.observation.inputValues,
+          observationWithOutcome.observation.outcome.asArray(0),
+          observationWithOutcome.currentWeights)
+        val newZ_i = pFtrlOutput.newZ
+        val newN_i = pFtrlOutput.newN
+        val newW_i = pFtrlOutput.newW
         // End math
-        ((t_i, idx, newZ_i), Some((t_i + 1) % Int.MaxValue, newZ_i))
+        ((t_i, idx, newZ_i, newN_i, newW_i), Some((t_i + 1) % Int.MaxValue, newZ_i, newN_i))
       })
 
       // Groups updates by their generation.
@@ -105,16 +117,26 @@ object FtrlLearning {
         keyBy(_._1).
         window(ProcessingTimeSessionWindows.withGap(Time.minutes(3))). // Reaching the gap is a fail case...
         trigger(CountTrigger.of(dimensions)). // ... the trigger should always close the window before then.
-        apply[List[Tuple2[Int, Double]]]((hashCode: Int, timeWindow: TimeWindow, sq: Iterable[(Int, Int, Double)], coll: Collector[List[Tuple2[Int, Double]]]) => {
-        val data = sq.map(t => (t._2, t._3)).toList
-        coll.collect(data)
+        apply((_: Int, _: TimeWindow, sq: Iterable[(Int, Int, Double, Double, Double)], coll: Collector[(List[(Int, Double)],List[(Int, Double)],List[(Int, Double)])]) => {
+        val zData = sq.map(t => (t._2, t._3)).toList
+        val nData = sq.map(t => (t._2, t._4)).toList
+        val wData = sq.map(t => (t._2, t._5)).toList
+        coll.collect((zData, nData, wData))
       })
 
       // The final stream of dense weight vectors
-      val weightVectorStream = updatesByGeneration.map(listIdxs => {
-        var vec = DenseVector.zeros[MLBasicType](dimensions)
-        listIdxs.foreach(tup => vec(tup._1) = tup._2)
-        LearnedWeights(Right(vec))
+      val weightVectorStream = updatesByGeneration.map(listIdxsTup => {
+        val listIdxs = listIdxsTup._3
+        var wVec = DenseVector.zeros[MLBasicType](dimensions)
+        listIdxs.foreach(tup => wVec(tup._1) = tup._2)
+        var zVec = DenseVector.zeros[MLBasicType](dimensions)
+        listIdxsTup._1.foreach(tup => zVec(tup._1) = tup._2)
+        var nVec = DenseVector.zeros[MLBasicType](dimensions)
+        listIdxsTup._2.foreach(tup => nVec(tup._1) = tup._2)
+        val weights = LearnedWeights(Dense(wVec), Dense(zVec), Dense(nVec))
+
+        println(s"\n\nWEIGHTS:  $weights\n\nlistIdxsTups:  $listIdxsTup\n\n")
+        weights
       })
 
       // `weightVectorStream` is a `DataStream[LearnedWeightings]`
@@ -134,13 +156,6 @@ object FtrlLearning {
     private var lastsRecordedWeights: Option[LearnedWeights] = None
 
     /**
-      * Generates initial weights
-      *
-      * @return dense vector
-      */
-    private def generateInitWeights: DenseVector[Double] = generateInitialWeights(ftrlParameters.numDimensions)
-
-    /**
       * On any arrival of an observation, emit the observation, using generated weights if necessary.
       *
       * @param value observation
@@ -148,12 +163,14 @@ object FtrlLearning {
       * @param out   collector
       */
     override def processElement1(value: _root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.ObservationWithOutcome, ctx: _root_.org.apache.flink.streaming.api.functions.co.CoProcessFunction[_root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.ObservationWithOutcome, _root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.LearnedWeights, _root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.FtrlObservation]#Context, out: _root_.org.apache.flink.util.Collector[_root_.org.jwvictor.flinktrl.math.MachineLearningUtilities.FtrlObservation]): Unit = {
-      // Until the first set of weights arrives, we will use a vector generated using the mixed-in `FtrlHeuristics` trait.
-      val weights = synchronized {
+      // Until the first set of weights arrives, we used to use a vector generated using the mixed-in `FtrlHeuristics` trait.
+      // Now we built that logic into the math receiving the vector.
+      val weights = synchronized { // Concurrent accesses aren't a problem now, but being defensive for future-proofing.
         lastsRecordedWeights match {
           case Some(w: LearnedWeights) => w
           case _ =>
-            val gw = LearnedWeights(Right(generateInitialWeights(ftrlParameters.numDimensions)))
+            // This changed from: LearnedWeights(Dense(generateInitialWeights(ftrlParameters.numDimensions)))
+            val gw = LearnedWeights(Initialization, Initialization, Initialization)
             lastsRecordedWeights = Some(gw)
             gw
         }
@@ -180,11 +197,9 @@ object FtrlLearning {
   /**
     * Uses the custom operator to create a stream of `FtrlLearning` from streams of observations and weights.
     *
-    * @param in
-    * @param learnedWeights
-    * @param rig
+    * @param ftrlParams
     */
-  class FtrlFeedbackOperator(in: DataStream[ObservationWithOutcome], learnedWeights: DataStream[LearnedWeights], rig: FtrlParameters) {
+  implicit class FtrlFeedbackOperator(s1: DataStream[ObservationWithOutcome])(implicit ftrlParams: FtrlParameters) {
 
     /**
       * Create feedback stream ready for ingestion by FTRL. Takes in observation and latest weight streams, and produces
@@ -193,12 +208,11 @@ object FtrlLearning {
       * Implementation recommendation: use a mechanism like Kafka to stream weights to and from and create this feedback
       * loop, as in the example program.
       *
-      * @param s1
-      * @param s2
+      * @param inputWeightStream
       * @return joined stream
       */
-    def createFeedbackLoop(s1: DataStream[ObservationWithOutcome], s2: DataStream[LearnedWeights]): DataStream[FtrlObservation] = {
-      val connected: ConnectedStreams[ObservationWithOutcome, LearnedWeights] = s1.connect[LearnedWeights](s2)
+    def createFeedbackLoop(inputWeightStream: DataStream[LearnedWeights]): DataStream[FtrlObservation] = {
+      val connected: ConnectedStreams[ObservationWithOutcome, LearnedWeights] = s1.connect[LearnedWeights](inputWeightStream)
       val outStream = connected.process(new FtrlInputJoinStream(null))
       outStream
     }

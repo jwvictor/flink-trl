@@ -17,7 +17,7 @@ package org.jwvictor.flinktrl.operators
   */
 
 import breeze.linalg._
-import org.jwvictor.flinktrl.math.MachineLearningUtilities.SomeVector
+import org.jwvictor.flinktrl.math.MachineLearningUtilities.{SomeVector, Sparse}
 
 
 trait FtrlStringTokenizer {
@@ -36,8 +36,12 @@ case object BasicStringSplitter extends FtrlStringTokenizer {
   val WHITESPACE = "\n\t"
 
   override def split(input: String): Seq[String] = {
-    val toRemove = PUNCTUATION + NUMBERS + WHITESPACE
-    val sanitized = input.filter(!toRemove.contains(_))
+    val toRemove = PUNCTUATION + NUMBERS
+    var inputWs = input
+    WHITESPACE.foreach(c => {
+      inputWs = inputWs.replace(c, ' ')
+    })
+    val sanitized = inputWs.filter(!toRemove.contains(_))
     val tokens = sanitized.split(" ")
     tokens
   }
@@ -58,6 +62,6 @@ object TextInputOperators {
     for (i <- hashes) {
       sparse(i) = sparse(i) + 1.0
     }
-    Left(sparse)
+    Sparse(sparse)
   }
 }

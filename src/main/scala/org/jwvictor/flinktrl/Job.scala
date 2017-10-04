@@ -23,7 +23,7 @@ import breeze.numerics._
 import breeze.util._
 import org.apache.flink.streaming.api.functions.source.SourceFunction
 import org.jwvictor.flinktrl.math.FtrlParameters
-import org.jwvictor.flinktrl.math.MachineLearningUtilities.{FtrlObservation, LearnedWeights, ObservationWithOutcome, ObservedValues}
+import org.jwvictor.flinktrl.math.MachineLearningUtilities._
 
 
 /**
@@ -64,18 +64,49 @@ object Job {
         }
       }
     })
+    val weightInputStream = env.addSource[DenseVector[Double]](new SourceFunction[DenseVector[Double]] {
+
+      @volatile
+      private var isRunning = true
+
+      override def cancel(): Unit = {
+        isRunning = false
+      }
+
+      override def run(ctx: SourceFunction.SourceContext[DenseVector[Double]]): Unit = {
+        var ctr:Int = 0
+        while(isRunning && ctr < 1000){
+          val data = 0.until(nDimensions).map(_ => scala.util.Random.nextGaussian).toArray
+          ctx.collect(DenseVector(data))
+          Thread.sleep(300)
+          ctr += 1
+        }
+      }
+    })
 
     import org.jwvictor.flinktrl.operators.FtrlLearning._
+
+    val observationStream = txtStream.
+      map(TextInputOperators.textToHashVector(_, nDimensions, BasicStringSplitter)).
+      map(x => ObservationWithOutcome(ObservedValues(x), ObservedValues(Sparse(res))))
+    val fakeWeightStream = weightInputStream.map(x => LearnedWeights(Dense(x), Dense(x), Dense(x)))
+    val learnedWeightsAndStateStream = observationStream.
+      createFeedbackLoop(fakeWeightStream).
+      withFtrlLearning.
+      map(_.serialize.array().map(_.toString).toList.toString)
+
+    /*val x = Dense(DenseVector.zeros[Double](nDimensions))
+    val fakeWeightValues = LearnedWeights(x, x, x)
 
     // Test `withFtrlLearning` operator
     val outStream = txtStream.
       map(TextInputOperators.textToHashVector(_, nDimensions, BasicStringSplitter)).
-      map(x => ObservationWithOutcome(ObservedValues(x), ObservedValues(Left(res)))).
-      map(x => FtrlObservation(x, LearnedWeights(Right(DenseVector.zeros[Double](nDimensions))))).
+      map(x => ObservationWithOutcome(ObservedValues(x), ObservedValues(Sparse(res)))).
+      map(x => FtrlObservation(x, fakeWeightValues)).
       withFtrlLearning.
-      map(_.toString)
-    outStream.writeAsText("./out-ftrl-test.dat")
-
+      map(_.toString)*/
+    //outStream.writeAsText("./out-ftrl-test.dat")
+    learnedWeightsAndStateStream.writeAsText("./state-out-ftrl-test.dat")
     env.execute("FlinkTRL test driver")
   }
 }
